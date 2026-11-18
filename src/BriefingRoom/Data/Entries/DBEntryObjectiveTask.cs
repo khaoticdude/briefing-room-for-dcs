@@ -1,4 +1,4 @@
-/*
+﻿/*
 ==========================================================================
 This file is part of Briefing Room for DCS World, a mission
 generator for DCS World, by @akaAgar (https://github.com/akaAgar/briefing-room-for-dcs)
@@ -88,7 +88,7 @@ namespace BriefingRoom4DCS.Data
             return true;
         }
 
-        internal bool IsEscort() => ID.StartsWith("Escort") || ID == "SupportStrike" || ID == "SupportRecon" || ID == "SupportTransport";
+        internal bool IsEscort() => ID.StartsWith("Escort");
         internal bool IsHoldSuperiority() => ID == "HoldSuperiority";
     }
 }
