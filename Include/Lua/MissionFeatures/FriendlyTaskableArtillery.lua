@@ -114,7 +114,7 @@ function briefingRoom.mission.missionFeatures.supportArtillery.doFireMission(arg
       .supportArtillery
       .SHELLS_PER_FIRE_MISSION
   timer.scheduleFunction(briefingRoom.mission.missionFeatures.supportArtillery.doShell, args,
-    timer.getTime() + math.random(2, 3))
+    timer.getTime() + math.random(30, 60))
 end
 
 -- Radio command to launch fire mission (called from F10 menu)
