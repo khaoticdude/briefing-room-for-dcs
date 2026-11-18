@@ -43,28 +43,6 @@ namespace BriefingRoom4DCS.Generator.Mission.Objectives
 
             // Get units with validation
             ObjectiveCreationHelpers.GetUnitsWithValidation(ctx);
-
-            if ((ctx.Task.Preset == "EscortPlane" || ctx.Task.Preset == "EscortHelicopters") && ctx.UnitDBs.FirstOrDefault() is DBEntryAircraft aircraftDB)
-            {
-                bool isAirSpawn = !Constants.AIRBASE_LOCATIONS.Contains(targetBehaviorDB.Location);
-                string newBehaviorId = null;
-
-                if (aircraftDB.Tasks.Contains(DCSTask.GroundAttack) || aircraftDB.Tasks.Contains(DCSTask.CAS))
-                    newBehaviorId = isAirSpawn ? "AttackObjectiveFromAir" : "AttackObjective";
-                else if (aircraftDB.Tasks.Contains(DCSTask.Reconnaissance))
-                    newBehaviorId = isAirSpawn ? "ReconObjectiveFromAir" : "ReconObjective";
-                else if (aircraftDB.Tasks.Contains(DCSTask.Transport))
-                    newBehaviorId = isAirSpawn ? "InsertAtObjectiveFromAir" : "InsertAtObjective";
-
-                if (newBehaviorId != null)
-                {
-                    targetBehaviorDB = briefingRoom.Database.GetEntry<DBEntryObjectiveTargetBehavior>(newBehaviorId);
-                    ctx.TargetBehaviorDB = targetBehaviorDB;
-                    
-                    ctx.Mission.SetValue($"DynamicBehavior_{ctx.Task.GetHashCode()}", newBehaviorId);
-                }
-            }
-
             // Get transport origin and destination for escort
             var (originAirbase, unitCoordinates) = ObjectiveTransportUtils.GetTransportOrigin(briefingRoom, ref ctx.Mission, targetBehaviorDB.Location, objectiveCoordinates, true, ctx.ObjectiveTargetUnitFamily.GetUnitCategory());
             if (Constants.AIRBASE_LOCATIONS.Contains(targetBehaviorDB.Location) && targetDB.UnitCategory.IsAircraft())
@@ -117,16 +95,7 @@ namespace BriefingRoom4DCS.Generator.Mission.Objectives
             }
 
             if (ctx.UnitDBs.FirstOrDefault() is DBEntryAircraft escortedAircraft)
-            {
-                double slowestPlayerSpeed = escortedAircraft.CruiseSpeed;
-                foreach (var playerGroup in ctx.Mission.TemplateRecord.PlayerFlightGroups)
-                {
-                    var playerAircraft = briefingRoom.Database.GetEntry<DBEntryJSONUnit>(playerGroup.Aircraft) as DBEntryAircraft;
-                    if (playerAircraft != null && playerAircraft.CruiseSpeed < slowestPlayerSpeed)
-                        slowestPlayerSpeed = playerAircraft.CruiseSpeed;
-                }
-                ctx.ExtraSettings["Speed"] = slowestPlayerSpeed;
-            }
+                ctx.ExtraSettings["Speed"] = GetEscortSpeed(briefingRoom.Database, escortedAircraft, ctx.Mission.TemplateRecord.PlayerFlightGroups);
 
             GroupInfo? VIPGroupInfo = UnitGenerator.AddUnitGroup(
                 briefingRoom,
@@ -167,7 +136,6 @@ namespace BriefingRoom4DCS.Generator.Mission.Objectives
             ctx.Mission.Waypoints.Add(cargoWaypoint);
             ctx.ObjectiveWaypoints.Add(cargoWaypoint);
 
-            AddEscortAltitudeInfo(ctx, VIPGroupInfo.Value, targetDB.UnitCategory);
             ObjectiveUtils.AssignTargetSuffix(ref VIPGroupInfo, ctx.ObjectiveName, false);
             AddEscortBriefingTokens(ctx, VIPGroupInfo.Value, targetDB.UnitCategory, escortGroupName);
             AddEscortKneeboardFlightEntry(ctx, VIPGroupInfo.Value, targetDB.UnitCategory, escortGroupName, originAirbase);
@@ -188,7 +156,19 @@ namespace BriefingRoom4DCS.Generator.Mission.Objectives
             return ObjectiveCreationHelpers.FinalizeObjective(ctx, VIPGroupInfo.Value);
         }
 
-/// <summary>
+        /// <summary>
+        /// Caps the escorted aircraft's cruise speed to the slowest player flight of the same unit category
+        /// so mixed plane/helicopter flights do not slow fixed-wing escorts down to helicopter speeds.
+        /// </summary>
+        internal static double GetEscortSpeed(IDatabase database, DBEntryAircraft escortedAircraft, IEnumerable<MissionTemplateFlightGroupRecord> playerGroups) =>
+            playerGroups
+                .Select(g => database.GetEntry<DBEntryJSONUnit>(g.Aircraft) as DBEntryAircraft)
+                .Where(a => a != null && a.Category == escortedAircraft.Category && a.CruiseSpeed > 0)
+                .Select(a => a.CruiseSpeed)
+                .Append(escortedAircraft.CruiseSpeed)
+                .Min();
+
+        /// <summary>
         /// Exposes the escorted unit's callsign/group name and cruise altitude to the briefing/kneeboard
         /// task text via the $ESCORTGROUPNAME$ and $ESCORTALTITUDECLAUSE$ tokens (see
         /// Database/ObjectiveTasks/Escort.ini). Altitude is left blank for non-aircraft targets
@@ -204,9 +184,10 @@ namespace BriefingRoom4DCS.Generator.Mission.Objectives
             {
                 int altitudeFt = (int)Math.Round(aircraftDB.CruiseAlt * Toolbox.METERS_TO_FEET / 500.0) * 500;
                 bool isHelicopter = aircraftDB.Families != null && aircraftDB.Families.Length > 0 && aircraftDB.Families[0].GetUnitCategory() == UnitCategory.Helicopter;
-                string altTypeStr = isHelicopter ? "AGL" : "MSL";
-                altitudeClause = $" at approximately {altitudeFt:N0} ft {altTypeStr}";
+                string altTypeStr = ctx.BriefingRoom.Database.Language.Translate(ctx.Mission.LangKey, isHelicopter ? "EscortAltitudeAGL" : "EscortAltitudeMSL");
+                altitudeClause = " " + ctx.BriefingRoom.Database.Language.Translate(ctx.Mission.LangKey, "EscortAltitudeClause", altitudeFt.ToString("N0"), altTypeStr);
             }
+
             ctx.LuaExtraSettings["EscortAltitudeClause"] = altitudeClause;
         }
 
@@ -221,36 +202,26 @@ namespace BriefingRoom4DCS.Generator.Mission.Objectives
             if (unitCategory != UnitCategory.Plane && unitCategory != UnitCategory.Helicopter)
                 return;
 
+            var lang = ctx.BriefingRoom.Database.Language;
             bool isRampSpawn = originAirbase != null && Constants.AIRBASE_LOCATIONS.Contains(ctx.TargetBehaviorDB.Location);
-            string departure = isRampSpawn ? $"{originAirbase.UIDisplayName.Get(ctx.Mission.LangKey)} (Ramp)" : "Air Spawn";
+            string departure = isRampSpawn
+                ? lang.Translate(ctx.Mission.LangKey, "EscortDepartureRamp", originAirbase.UIDisplayName.Get(ctx.Mission.LangKey))
+                : lang.Translate(ctx.Mission.LangKey, "EscortDepartureAirSpawn");
 
             if (!isRampSpawn && escortedGroup.UnitDB is DBEntryAircraft aircraftDB)
             {
                 double speed = ctx.ExtraSettings.ContainsKey("Speed") ? Convert.ToDouble(ctx.ExtraSettings["Speed"]) : aircraftDB.CruiseSpeed;
                 int speedKts = (int)Math.Round(speed * Toolbox.METERS_PER_SECOND_TO_KNOTS);
-                departure += $" ({speedKts:N0} kts)";
+                departure = lang.Translate(ctx.Mission.LangKey, "EscortDepartureWithSpeed", departure, speedKts.ToString("N0"));
             }
 
             ctx.Mission.Briefing.AddItem(DCSMissionBriefingItemType.FlightGroup,
-                $"{groupName}(ESCORT)\t" +
+                $"{groupName}{lang.Translate(ctx.Mission.LangKey, "EscortFlightTag")}\t" +
                 $"{ctx.UnitCount}× {escortedGroup.UnitDB.UIDisplayName.Get(ctx.Mission.LangKey)}\t" +
                 $"{GeneratorTools.FormatRadioFrequency(escortedGroup.Frequency)}\t" +
                 "-\t" +
                 $"{departure}\t" +
                 $"{ctx.ObjectiveName}");
-        }
-        private static void AddEscortAltitudeInfo(ObjectiveContext ctx, GroupInfo escortedGroup, UnitCategory unitCategory)
-        {
-            string altitudeClause = "";
-            if ((unitCategory == UnitCategory.Plane || unitCategory == UnitCategory.Helicopter) &&
-                escortedGroup.UnitDB is DBEntryAircraft aircraftDB)
-            {
-                int altitudeFt = (int)Math.Round(aircraftDB.CruiseAlt * Toolbox.METERS_TO_FEET / 500.0) * 500;
-                bool isHelicopter = aircraftDB.Families != null && aircraftDB.Families.Length > 0 && aircraftDB.Families[0].GetUnitCategory() == UnitCategory.Helicopter;
-                string altTypeStr = isHelicopter ? "AGL" : "MSL";
-                altitudeClause = $" at approximately {altitudeFt:N0} ft {altTypeStr}";
-            }
-            ctx.LuaExtraSettings["EscortAltitudeClause"] = altitudeClause;
         }
 
         private static void CreateThreats(IBriefingRoom briefingRoom, ref DCSMission mission, Coordinates unitCoordinates, Coordinates objectiveCoordinates, GroupInfo? VIPGroupInfo, UnitCategory unitCategory, bool playerHasPlanes)

@@ -315,19 +315,14 @@ namespace BriefingRoom4DCS.Generator.Mission
 
         private static DCSTask AssignTask(DCSMission mission, MissionTemplateSubTaskRecord objective, DBEntryAircraft unitDB)
         {
-            if (objective.Task.StartsWith("Escort") || objective.Task.StartsWith("Support") || objective.Task.StartsWith("HoldSuperiority"))
+            if (objective.Task.StartsWith("Escort") || objective.Task.StartsWith("HoldSuperiority"))
             {
-                string dynamicBehavior = objective.TargetBehavior;
-                string dynamicKey = $"DynamicBehavior_{objective.GetHashCode()}";
-                if (mission.Values.ContainsKey(dynamicKey))
-                    dynamicBehavior = mission.Values[dynamicKey];
-
-                bool isEscortTargetAttacking = objective.Preset == "SupportStrikePackage" ||
+                bool isEscortTargetAttacking =
                     objective.Target == "PlaneAttack" ||
                     objective.Target == "PlaneBomber" ||
                     objective.Target == "PlaneStrike" ||
                     objective.Target == "HelicopterAttack" ||
-                    (dynamicBehavior != null && dynamicBehavior.StartsWith("Attack"));
+                    (objective.TargetBehavior != null && objective.TargetBehavior.StartsWith("Attack"));
 
                 bool isSeadCapable = unitDB != null && unitDB.Tasks != null && unitDB.Tasks.Contains(DCSTask.SEAD);
 
