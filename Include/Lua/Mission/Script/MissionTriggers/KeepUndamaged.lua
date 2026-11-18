@@ -9,8 +9,6 @@ function briefingRoom.mission.objectivesTriggersCommon.registerKeepUndamagedTrig
         hitOrDestroyedUnit = event.initiator
     elseif event.id == world.event.S_EVENT_HIT or event.id == world.event.S_EVENT_KILL then
         hitOrDestroyedUnit = event.target
-    elseif briefingRoom.mission.objectives[objectiveIndex].targetCategory == Unit.Category.HELICOPTER and event.id == world.event.S_EVENT_LAND then
-        hitOrDestroyedUnit = event.initiator
     end
     
     if hitOrDestroyedUnit == nil then return false end
@@ -33,9 +31,7 @@ function briefingRoom.mission.objectivesTriggersCommon.registerKeepUndamagedTrig
       briefingRoom.radioManager.play(messages[messageIndex], "RadioHQTargetLost", math.random(1, 3))
     end
   
-    -- Mark the objective as failed (or complete in this context means failed since it's an escort?)
-    -- In KeepAlive, removing all target units completes the objective but marks it failed?
-    -- Wait, if any unit takes damage, we fail the entire objective.
+    -- Any damage to an escorted unit fails the objective
     briefingRoom.mission.coreFunctions.completeObjective(objectiveIndex, true)
   
     return true
@@ -45,5 +41,4 @@ function briefingRoom.mission.objectivesTriggersCommon.registerKeepUndamagedTrig
   briefingRoom.mission.registerObjectiveEventTrigger(world.event.S_EVENT_KILL, handler)
   briefingRoom.mission.registerObjectiveEventTrigger(world.event.S_EVENT_DEAD, handler)
   briefingRoom.mission.registerObjectiveEventTrigger(world.event.S_EVENT_CRASH, handler)
-  briefingRoom.mission.registerObjectiveEventTrigger(world.event.S_EVENT_LAND, handler)
 end
