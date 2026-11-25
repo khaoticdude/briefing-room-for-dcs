@@ -58,7 +58,7 @@ namespace BriefingRoom4DCS.Generator.Mission.Objectives
             }
             // Get transport origin and destination for escort
             var (originAirbase, unitCoordinates) = ObjectiveTransportUtils.GetTransportOrigin(briefingRoom, ref ctx.Mission, targetBehaviorDB.Location, objectiveCoordinates, true, ctx.ObjectiveTargetUnitFamily.GetUnitCategory());
-            if (Constants.AIRBASE_LOCATIONS.Contains(targetBehaviorDB.Location) && targetDB.UnitCategory.IsAircraft())
+            if (IsRampSpawnLocation(targetBehaviorDB.Location) && targetDB.UnitCategory.IsAircraft())
                 unitCoordinates = ObjectiveUtils.PlaceInAirbase(briefingRoom, ref ctx.Mission, ctx.ExtraSettings, targetBehaviorDB, unitCoordinates, ctx.UnitCount, ctx.UnitDBs.First(), true);
             
             var (airbase, destinationPoint) = ObjectiveTransportUtils.GetTransportDestination(briefingRoom, ref ctx.Mission, targetBehaviorDB.Location, targetBehaviorDB.Destination, unitCoordinates, objectiveCoordinates, task.TransportDistance, originAirbase?.DCSID ?? -1, true, ctx.ObjectiveTargetUnitFamily.GetUnitCategory(), targetBehaviorDB.ID.StartsWith("ToFrontLine"));
@@ -150,8 +150,9 @@ namespace BriefingRoom4DCS.Generator.Mission.Objectives
             ctx.ObjectiveWaypoints.Add(cargoWaypoint);
 
             ObjectiveUtils.AssignTargetSuffix(ref VIPGroupInfo, ctx.ObjectiveName, false);
-            AddEscortBriefingTokens(ctx, VIPGroupInfo.Value, targetDB.UnitCategory, escortGroupName);
-            AddEscortKneeboardFlightEntry(ctx, VIPGroupInfo.Value, targetDB.UnitCategory, escortGroupName, originAirbase);
+            bool isRampSpawn = originAirbase != null && IsRampSpawnLocation(ctx.TargetBehaviorDB.Location);
+            AddEscortBriefingTokens(ctx, VIPGroupInfo.Value, targetDB.UnitCategory, escortGroupName, isRampSpawn);
+            AddEscortKneeboardFlightEntry(ctx, VIPGroupInfo.Value, targetDB.UnitCategory, escortGroupName, originAirbase, isRampSpawn);
             ObjectiveCreationHelpers.AddBriefingItems(ctx, VIPGroupInfo.Value, false);            
             ObjectiveCreationHelpers.AddBriefingRemarks(ctx, ObjectiveCreationHelpers.GetPluralIndex(VIPGroupInfo.Value, false));
             ObjectiveCreationHelpers.AddOggFilesAndFeatures(ctx, VIPGroupInfo.Value);
@@ -187,12 +188,13 @@ namespace BriefingRoom4DCS.Generator.Mission.Objectives
         /// Database/ObjectiveTasks/Escort.ini). Altitude is left blank for non-aircraft targets
         /// (ground/ship escorts have no meaningful "altitude").
         /// </summary>
-        private static void AddEscortBriefingTokens(ObjectiveContext ctx, GroupInfo escortedGroup, UnitCategory unitCategory, string groupName)
+        private static void AddEscortBriefingTokens(ObjectiveContext ctx, GroupInfo escortedGroup, UnitCategory unitCategory, string groupName, bool isRampSpawn)
         {
             ctx.LuaExtraSettings["EscortGroupName"] = groupName;
 
             string altitudeClause = "";
-            if ((unitCategory == UnitCategory.Plane || unitCategory == UnitCategory.Helicopter) &&
+            if (!isRampSpawn &&
+                (unitCategory == UnitCategory.Plane || unitCategory == UnitCategory.Helicopter) &&
                 escortedGroup.UnitDB is DBEntryAircraft aircraftDB)
             {
                 int altitudeFt = (int)Math.Round(aircraftDB.CruiseAlt * Toolbox.METERS_TO_FEET / 500.0) * 500;
@@ -210,13 +212,12 @@ namespace BriefingRoom4DCS.Generator.Mission.Objectives
         /// aircraft type, and radio frequency alongside their own flights. Only added for airborne
         /// escorts (Plane/Helicopter) - ground/ship escorts have no equivalent kneeboard table.
         /// </summary>
-        private static void AddEscortKneeboardFlightEntry(ObjectiveContext ctx, GroupInfo escortedGroup, UnitCategory unitCategory, string groupName, DBEntryAirbase originAirbase)
+        private static void AddEscortKneeboardFlightEntry(ObjectiveContext ctx, GroupInfo escortedGroup, UnitCategory unitCategory, string groupName, DBEntryAirbase originAirbase, bool isRampSpawn)
         {
             if (unitCategory != UnitCategory.Plane && unitCategory != UnitCategory.Helicopter)
                 return;
 
             var lang = ctx.BriefingRoom.Database.Language;
-            bool isRampSpawn = originAirbase != null && Constants.AIRBASE_LOCATIONS.Contains(ctx.TargetBehaviorDB.Location);
             string departure = isRampSpawn
                 ? lang.Translate(ctx.Mission.LangKey, "EscortDepartureRamp", originAirbase.UIDisplayName.Get(ctx.Mission.LangKey))
                 : lang.Translate(ctx.Mission.LangKey, "EscortDepartureAirSpawn");
@@ -325,5 +326,11 @@ namespace BriefingRoom4DCS.Generator.Mission.Objectives
 
             return $"{behaviorPrefix}{behaviorSuffix}";
         }
+
+        /// <summary>
+        /// Returns true when the escort origin behavior spawns aircraft on an airbase ramp (including the player airbase).
+        /// </summary>
+        internal static bool IsRampSpawnLocation(DBEntryObjectiveTargetBehaviorLocation location) =>
+            Constants.AIRBASE_LOCATIONS.Contains(location) || location == DBEntryObjectiveTargetBehaviorLocation.PlayerAirbase;
     }
 }
